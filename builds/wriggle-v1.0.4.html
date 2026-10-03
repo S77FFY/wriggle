@@ -1,0 +1,621 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="app-repo" content="wriggle">
+<meta name="app-version" content="1.0.4">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#121733">
+<title>Wriggle</title>
+<style>
+  :root{--fg:#f3f5ff;--dim:rgba(243,245,255,.55);--panel:rgba(20,25,52,.92);--accent:#ffd34d;--heart:#ff4d6d}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;background:#0c1024;color:var(--fg);
+    font-family:ui-rounded,"SF Pro Rounded",system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-user-select:none;user-select:none}
+  body{background:radial-gradient(120% 80% at 50% 35%,#2a3170 0%,#151a3d 55%,#0a0d20 100%)}
+  canvas{position:fixed;inset:0;width:100%;height:100%;touch-action:none;display:block}
+  #hud{position:fixed;left:0;right:0;top:0;display:flex;justify-content:space-between;align-items:flex-start;
+    padding:calc(env(safe-area-inset-top) + 12px) 18px 0;pointer-events:none}
+  #lvlNum{font-size:12px;letter-spacing:.18em;color:var(--dim);font-weight:700}
+  #lvlName{font-size:26px;font-weight:800;letter-spacing:.01em;margin-top:2px}
+  #right{text-align:right}
+  #hearts{font-size:22px;letter-spacing:3px}
+  #hearts .off{opacity:.18}
+  #hearts.shake{animation:shake .4s}
+  @keyframes shake{20%{transform:translateX(-6px)}40%{transform:translateX(6px)}60%{transform:translateX(-4px)}80%{transform:translateX(3px)}}
+  #left{font-size:13px;color:var(--dim);font-weight:700;margin-top:4px}
+  #left b{color:var(--fg);font-size:17px}
+  #bar{position:fixed;left:0;right:0;bottom:0;display:flex;justify-content:center;gap:10px;
+    padding:0 16px calc(env(safe-area-inset-bottom) + 16px)}
+  button{font:inherit;font-weight:800;font-size:15px;color:var(--fg);background:rgba(255,255,255,.1);
+    border:1px solid rgba(255,255,255,.16);border-radius:999px;padding:11px 18px;cursor:pointer;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+  button:active{transform:scale(.96);background:rgba(255,255,255,.18)}
+  #ver{position:fixed;right:10px;bottom:calc(env(safe-area-inset-bottom) + 2px);font-size:10px;color:rgba(255,255,255,.3);pointer-events:none;letter-spacing:.05em}
+  #overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(5,7,18,.55);
+    backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);transition:opacity .25s}
+  #overlay.hidden{opacity:0;pointer-events:none}
+  .panel{background:var(--panel);border:1px solid rgba(255,255,255,.12);border-radius:22px;padding:24px 22px;width:min(330px,88vw);text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+  .panel h2{margin:0 0 6px;font-size:26px}
+  .panel p{margin:0 0 18px;color:var(--dim);font-weight:600}
+  .panel .go{background:var(--accent);color:#1b1a10;border:none;padding:13px 28px;font-size:17px}
+  #lvGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;max-height:55vh;overflow-y:auto;overflow-x:hidden;padding:3px;margin:0 -3px 14px}
+  #lvGrid button{border-radius:14px;padding:12px 6px;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  @media (max-width:340px){#lvGrid button{font-size:12.5px}}
+  #lvGrid button.cur{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+  #lvGrid button:disabled{opacity:.3}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div><div id="lvlNum">LEVEL 1</div><div id="lvlName">Cube</div></div>
+  <div id="right"><div id="hearts"></div><div id="left"><b id="leftN">0</b> arrows</div></div>
+</div>
+<div id="bar">
+  <button id="hintBtn">💡 Hint</button>
+  <button id="resetBtn">↻ Restart</button>
+  <button id="levelsBtn">☰ Levels</button>
+</div>
+<div id="ver">v1.0.4</div>
+<div id="overlay" class="hidden"><div class="panel" id="panel"></div></div>
+
+<script>
+"use strict";
+const VERSION = document.querySelector('meta[name="app-version"]').content;
+document.getElementById('ver').textContent = 'v' + VERSION;
+
+// GEN-START
+// ---------------------------------------------------------------- puzzle generation
+function mulberry(seed){let a=seed>>>0;return function(){a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+const DIRS=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+
+// ---- shapes: arrays of [x,y,z,region]
+function cube(n){const c=[];for(let x=0;x<n;x++)for(let y=0;y<n;y++)for(let z=0;z<n;z++)c.push([x,y,z,'cube']);return c;}
+function pyramid(b){const c=[];for(let L=0;b-2*L>0;L++)for(let x=L;x<b-L;x++)for(let z=L;z<b-L;z++)c.push([x,L,z,L%2?'p1':'p0']);return c;}
+function house(big){
+  const W=big?7:5,D=big?5:4,H=big?4:3,mid=W>>1,c=[];
+  for(let x=0;x<W;x++)for(let y=0;y<H;y++)for(let z=0;z<D;z++){
+    let r='wall';
+    if(z===0&&x===mid&&y<2)r='door';
+    else if(y===H-2&&(z===0||z===D-1)&&(x===1||x===W-2))r='win';
+    else if(y===H-2&&(x===0||x===W-1)&&z===(D>>1))r='win';
+    c.push([x,y,z,r]);
+  }
+  for(let k=0;W-2*k>0;k++)for(let x=k;x<W-k;x++)for(let z=0;z<D;z++)c.push([x,H+k,z,'roof']);
+  c.push([W-2,H+2,1,'chim'],[W-2,H+3,1,'chim']);
+  return c;
+}
+function disc(c,y,r,reg){for(let x=0;x<7;x++)for(let z=0;z<7;z++)if((x-3)**2+(z-3)**2<=r*r+1e-6)c.push([x,y,z,reg]);}
+function lighthouse(){
+  const c=[];disc(c,0,3,'base');disc(c,1,2.5,'base');
+  for(let y=2;y<=9;y++)disc(c,y,2.3-(y-2)*0.1,Math.floor((y-2)/2)%2?'white':'red');
+  disc(c,10,2.9,'gal');disc(c,11,1.5,'lamp');disc(c,12,1.5,'lamp');disc(c,13,1.5,'cap');disc(c,14,0.5,'cap');
+  return c;
+}
+function bulb(){
+  const c=[];disc(c,0,0.5,'tip');
+  for(let y=1;y<=3;y++)disc(c,y,1.5,y%2?'met1':'met2');
+  for(let x=0;x<7;x++)for(let y=4;y<=10;y++)for(let z=0;z<7;z++){
+    const d2=(x-3)**2+(y-7)**2+(z-3)**2;
+    if(d2<=3.2*3.2)c.push([x,y,z,d2<=2.25?'fil':'glass']);
+  }
+  return c;
+}
+// fill: 'shell' = hollow skin (inward arrows wait for the far wall), 'solid' = filled through.
+// seed: found offline so every step has exactly one removable arrow.
+// Blue and white hoops: two-row bands alternate down the body and sleeves.
+function shirt(D=2){
+  const c=[],W=9,H=11;
+  const reg=y=>(Math.floor(y/2)%2)?'qw':'qb';
+  for(let x=0;x<W;x++)for(let y=0;y<H;y++)for(let z=0;z<D;z++){
+    if(y===H-1&&x>=3&&x<=5)continue;           // neck
+    if(y===H-2&&x===4)continue;                // V of the collar
+    c.push([x,y,z,reg(y)]);
+  }
+  // sleeves: angled out from the shoulders
+  for(const side of [-1,1])for(let y=6;y<=10;y++){
+    const reach=y>=9?3:y>=7?2:1;
+    for(let k=1;k<=reach;k++){if(y===6&&k>1)continue;const x=side<0?-k:W-1+k;for(let z=0;z<D;z++)c.push([x,y,z,reg(y)]);}
+  }
+  return c;
+}
+const LEVELS=[
+  {name:'Cube',make:()=>cube(3),fill:'solid',seed:55434},
+  {name:'Pyramid',make:()=>pyramid(5),fill:'solid',seed:237572},
+  {name:'House',make:()=>house(false),fill:'solid',seed:182140},
+  {name:'Cube',make:()=>cube(4),fill:'shell',seed:261331},
+  {name:'Lightbulb',make:()=>bulb(),fill:'solid',seed:4988975},
+  {name:'Pyramid',make:()=>pyramid(7),fill:'solid',seed:166305},
+  {name:'House',make:()=>house(true),fill:'shell',seed:71278},
+  {name:'Lighthouse',make:()=>lighthouse(),fill:'solid',seed:506824},
+  {name:'Cube',make:()=>cube(5),fill:'solid',seed:190065},
+  {name:'Lighthouse',make:()=>lighthouse(),fill:'solid',seed:7958605},
+  {name:'QPR Shirt',make:()=>shirt(2),fill:'solid',seed:2201493},
+];
+
+
+// Keep only the outer skin of a shape.
+function shell(cells){
+  const k=c=>c[0]+','+c[1]+','+c[2],set=new Set(cells.map(k));
+  return cells.filter(c=>DIRS.some(d=>!set.has((c[0]+d[0])+','+(c[1]+d[1])+','+(c[2]+d[2]))));
+}
+function makeGrid(cells){
+  const mn=[1e9,1e9,1e9],mx=[-1e9,-1e9,-1e9];
+  for(const c of cells)for(let k=0;k<3;k++){if(c[k]<mn[k])mn[k]=c[k];if(c[k]>mx[k])mx[k]=c[k];}
+  const W=mx[0]-mn[0]+1,H=mx[1]-mn[1]+1,D=mx[2]-mn[2]+1,N=W*H*D;
+  const inShape=new Uint8Array(N),region=new Int16Array(N).fill(-1),regNames=[];
+  for(const c of cells){
+    const i=(c[0]-mn[0])+W*((c[1]-mn[1])+H*(c[2]-mn[2]));
+    let r=regNames.indexOf(c[3]);if(r<0){r=regNames.length;regNames.push(c[3]);}
+    inShape[i]=1;region[i]=r;
+  }
+  const nb=new Int32Array(N*6);
+  for(let i=0;i<N;i++){
+    const x=i%W,y=((i/W)|0)%H,z=(i/(W*H))|0;
+    for(let d=0;d<6;d++){
+      const nx=x+DIRS[d][0],ny=y+DIRS[d][1],nz=z+DIRS[d][2];
+      nb[i*6+d]=(nx<0||ny<0||nz<0||nx>=W||ny>=H||nz>=D)?-1:nx+W*(ny+H*nz);
+    }
+  }
+  return{W,H,D,N,inShape,region,regNames,nb};
+}
+function dirIndex(g,a,b){for(let d=0;d<6;d++)if(g.nb[a*6+d]===b)return d;return -1;}
+
+// Outside-in chain builder. Snake k is removed k-th. Its path out may only pass through
+// cells of earlier snakes (or empty space) and must hit snake k-1, so it is freed exactly
+// when k-1 leaves: one removable arrow at a time.
+function genForward(g,r,tries,budget,ISO0=400,ISO1=60){
+  const inShape=g.inShape,owner=new Int32Array(g.N).fill(-1),nb=g.nb;
+  const snakes=[];
+  const maxLen=g.N>150?8:g.N>60?7:5;
+  let remCount=0;for(let i=0;i<g.N;i++)if(inShape[i])remCount++;
+  const unassigned=i=>inShape[i]&&owner[i]<0;
+  function rayInfo(h,d,own){
+    let last=-1;const ray=[];
+    for(let p=nb[h*6+d];p>=0;p=nb[p*6+d]){
+      if(own.includes(p)||unassigned(p))return null;
+      if(inShape[p]&&owner[p]>last)last=owner[p];
+      ray.push(p);
+    }
+    return{last,ray};
+  }
+  function body(h,d,len){
+    const reg=g.region[h],path=[h],second=nb[h*6+(d^1)];
+    if(len>1&&second>=0&&unassigned(second)){
+      path.unshift(second);let lastD=d;
+      while(path.length<len){
+        const cur=path[0],opts=[];let tw=0;
+        for(let e=0;e<6;e++){const q=nb[cur*6+e];
+          if(q>=0&&unassigned(q)&&!path.includes(q)){const w=(e===(lastD^1)?1:2.6)*(g.region[q]===reg?8:1);opts.push([q,e,w]);tw+=w;}}
+        if(!opts.length)break;
+        let pk=r()*tw,o=opts[0];for(const op of opts){pk-=op[2];if(pk<=0){o=op;break;}}
+        path.unshift(o[0]);lastD=o[1]^1;
+      }
+    }
+    return path;
+  }
+  function pickNext(){
+    let best=null;const k=snakes.length,prev=k?snakes[k-1]:null;
+    const consider=(h,d,len)=>{
+      if(!unassigned(h))return;
+      const cells=body(h,d,len||1+Math.floor(r()*maxLen));
+      const ri=rayInfo(h,d,cells);if(!ri)return;
+      const reg=g.region[h];let same=0;for(const c of cells)if(g.region[c]===reg)same++;
+      const strict=!prev||ri.last===k-1;
+      let iso=0;
+      for(const c of cells)for(let e=0;e<6;e++){const q=nb[c*6+e];if(q<0||!unassigned(q)||cells.includes(q))continue;
+        let deg=0;for(let f=0;f<6;f++){const w=nb[q*6+f];if(w>=0&&unassigned(w)&&!cells.includes(w))deg++;}
+        if(deg===0)iso+=ISO0;else if(deg===1)iso+=ISO1;}
+      const score=(strict?100000:(ri.last+1)*500)+cells.length*30-(cells.length-same)*80+(cells.length===1?-120:0)-iso+r()*60;
+      if(!best||score>best.score)best={cells,d,ray:ri.ray,score,reg,strict};
+    };
+    const aim=(q,d,len)=>{let p=nb[q*6+(d^1)];while(p>=0&&!unassigned(p))p=nb[p*6+(d^1)];if(p>=0)consider(p,d,len);};
+    for(let t=0;t<tries;t++){
+      if(prev&&r()<0.85)aim(prev.cells[(r()*prev.cells.length)|0],(r()*6)|0);
+      else{let h;do{h=(r()*g.N)|0;}while(!unassigned(h));consider(h,(r()*6)|0);}
+    }
+    if(prev&&(!best||!best.strict))for(const q of prev.cells)for(let d=0;d<6;d++)for(let L=1;L<=3;L++)aim(q,d,L===3?0:L);
+    if(!best)for(let h=0;h<g.N;h++)if(unassigned(h))for(let d=0;d<6;d++)consider(h,d,1);
+    return best;
+  }
+  let pops=0;
+  while(remCount>0){
+    const best=pickNext();
+    if(!best)break;
+    if(!best.strict&&pops<budget&&snakes.length>1){
+      // back up a couple of arrows and try a different route
+      const n=Math.min(snakes.length-1,1+((r()*3)|0));
+      for(let i=0;i<n;i++){const s=snakes.pop();for(const c of s.cells)owner[c]=-1;remCount+=s.cells.length;}
+      pops++;continue;
+    }
+    const id=snakes.length;for(const c of best.cells)owner[c]=id;remCount-=best.cells.length;
+    snakes.push(best);
+  }
+  return{snakes,dropped:remCount};
+}
+function levelGrid(n){const def=LEVELS[(n-1)%LEVELS.length],cells=def.make();return makeGrid(def.fill==='shell'?shell(cells):cells);}
+function buildPuzzle(n,g){
+  const def=LEVELS[(n-1)%LEVELS.length];
+  if(n<=LEVELS.length)return genForward(g,mulberry(def.seed),60,400);
+  // beyond the hand-checked set: search seeds for up to ~1.2s and keep the cleanest chain
+  const t0=Date.now();let best=null;
+  for(let a=0;a<400&&(Date.now()-t0<1200||!best);a++){
+    const r=genForward(g,mulberry(n*7919+a*104729+1),60,400),v=verifyPuzzle(g,r);
+    r.multi=v.ok?v.multi:999;if(!best||r.multi<best.multi)best=r;if(best.multi===0)break;
+  }
+  return best;
+}
+// Removing in order, is each arrow free, and at how many steps is more than one free?
+function verifyPuzzle(g,res){
+  const occ=new Int32Array(g.N).fill(-1);res.snakes.forEach((s,i)=>s.cells.forEach(c=>occ[c]=i));
+  const alive=new Set(res.snakes.map((_,i)=>i));let multi=0;
+  const isFree=i=>{const s=res.snakes[i];for(let p=g.nb[s.cells[s.cells.length-1]*6+s.d];p>=0;p=g.nb[p*6+s.d]){const o=occ[p];if(o>=0&&o!==i&&alive.has(o))return false;}return true;};
+  for(let k=0;k<res.snakes.length;k++){
+    let nf=0;for(const i of alive)if(isFree(i))nf++;
+    if(!isFree(k))return{ok:false};
+    if(nf>1)multi++;
+    alive.delete(k);
+  }
+  return{ok:true,multi};
+}
+// GEN-END
+
+// ---------------------------------------------------------------- palettes
+const PAL={
+  cube:['#ff5d73','#ffb340','#ffe14d','#4dd68c','#3fb8ff','#8f6bff','#ff7ad9','#2ee6d6'],
+  p0:['#f2c14e','#f7d774','#eab54a'],p1:['#d9963a','#e3a447','#c98a2e'],
+  wall:['#fff1d6','#ffe4b0','#f7d9a0','#fbe9c6'],door:['#8a5a3b'],win:['#6fd0ff'],roof:['#e8463a','#d23b30','#f05a4a','#c8352c'],chim:['#9e4b3a'],
+  base:['#7d8896','#8e99a6'],red:['#e53935','#f04a3f'],white:['#f5f7fa','#e2e8ef'],gal:['#5b6675','#4d5866'],lamp:['#ffe66d','#fff3a6'],cap:['#c62828','#b71c1c'],
+  glass:['#fff6b3','#ffef8a','#fff9d6','#ffe873'],fil:['#ff8c1a','#ff6a00'],met1:['#9aa3ad'],met2:['#c3cbd3'],tip:['#6b737c'],
+  qb:['#2f78d6','#3b84e0','#2a6dc8'],qw:['#ffffff','#f2f5fa','#e9eef6']
+};
+const hex=h=>[parseInt(h.slice(1,3),16)/255,parseInt(h.slice(3,5),16)/255,parseInt(h.slice(5,7),16)/255];
+
+// ---------------------------------------------------------------- WebGL
+const cv=document.getElementById('c');
+const gl=cv.getContext('webgl',{antialias:true,alpha:true,premultipliedAlpha:false});
+const VS=`attribute vec3 aP;attribute vec3 aN;
+uniform mat4 uVP;uniform mat3 uV;uniform vec3 uT;uniform mat3 uR;uniform vec3 uS;
+varying vec3 vN;varying float vD;
+void main(){vec3 w=uT+uR*(aP*uS);vN=uV*normalize(uR*(aN/uS));vec4 p=uVP*vec4(w,1.);vD=p.w;gl_Position=p;}`;
+const FS=`precision mediump float;
+uniform vec4 uC;uniform vec3 uF;uniform float uFA;uniform vec2 uFog;
+varying vec3 vN;varying float vD;
+void main(){vec3 n=normalize(vN);vec3 L=normalize(vec3(-.45,.7,.6));
+float d=max(dot(n,L),0.);float hemi=.5+.5*n.y;vec3 b=mix(uC.rgb,uF,uFA);
+vec3 c=b*(.26+.24*hemi+.6*d);vec3 H=normalize(L+vec3(0.,0.,1.));c+=vec3(pow(max(dot(n,H),0.),36.)*.42);
+float rim=pow(1.-max(n.z,0.),3.);c+=b*rim*.18;
+float f=clamp((vD-uFog.x)/(uFog.y-uFog.x),0.,1.);c=mix(c,c*.55,f);
+gl_FragColor=vec4(c,uC.a);}`;
+function sh(t,s){const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);return o;}
+const prog=gl.createProgram();gl.attachShader(prog,sh(gl.VERTEX_SHADER,VS));gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,FS));gl.linkProgram(prog);gl.useProgram(prog);
+const U={};for(const n of['uVP','uV','uT','uR','uS','uC','uF','uFA','uFog'])U[n]=gl.getUniformLocation(prog,n);
+const aP=gl.getAttribLocation(prog,'aP'),aN=gl.getAttribLocation(prog,'aN');
+gl.enableVertexAttribArray(aP);gl.enableVertexAttribArray(aN);
+
+function mesh(p,n,idx){const m={};m.vb=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,m.vb);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(p),gl.STATIC_DRAW);
+  m.nb=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,m.nb);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(n),gl.STATIC_DRAW);
+  m.ib=gl.createBuffer();gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,m.ib);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint16Array(idx),gl.STATIC_DRAW);m.count=idx.length;return m;}
+function cylGeo(seg){const p=[],n=[],idx=[];for(let i=0;i<=seg;i++){const a=i/seg*Math.PI*2,c=Math.cos(a),s=Math.sin(a);p.push(c,s,0,c,s,1);n.push(c,s,0,c,s,0);}
+  for(let i=0;i<seg;i++){const k=i*2;idx.push(k,k+1,k+2,k+1,k+3,k+2);}return mesh(p,n,idx);}
+function sphGeo(lat,lon){const p=[],n=[],idx=[];for(let i=0;i<=lat;i++){const th=i/lat*Math.PI;for(let j=0;j<=lon;j++){const ph=j/lon*Math.PI*2;
+  const x=Math.sin(th)*Math.cos(ph),y=Math.cos(th),z=Math.sin(th)*Math.sin(ph);p.push(x,y,z);n.push(x,y,z);}}
+  for(let i=0;i<lat;i++)for(let j=0;j<lon;j++){const a=i*(lon+1)+j,b=a+lon+1;idx.push(a,b,a+1,b,b+1,a+1);}return mesh(p,n,idx);}
+function coneGeo(seg){const p=[],n=[],idx=[],k=Math.SQRT1_2;
+  for(let i=0;i<=seg;i++){const a=i/seg*Math.PI*2,c=Math.cos(a),s=Math.sin(a),am=(i+.5)/seg*Math.PI*2;
+    p.push(c,s,0,0,0,1);n.push(c*k,s*k,k,Math.cos(am)*k,Math.sin(am)*k,k);}
+  for(let i=0;i<seg;i++){const q=i*2;idx.push(q,q+2,q+1);}
+  const base=p.length/3;p.push(0,0,0);n.push(0,0,-1);
+  for(let i=0;i<=seg;i++){const a=i/seg*Math.PI*2;p.push(Math.cos(a),Math.sin(a),0);n.push(0,0,-1);}
+  for(let i=0;i<seg;i++)idx.push(base,base+2+i,base+1+i);return mesh(p,n,idx);}
+const MESHES=[cylGeo(16),sphGeo(10,16),coneGeo(20)];
+const I3=new Float32Array([1,0,0,0,1,0,0,0,1]);
+function basis(dx,dy,dz){let ax=0,ay=1,az=0;if(Math.abs(dy)>.9){ax=1;ay=0;}
+  let xx=ay*dz-az*dy,xy=az*dx-ax*dz,xz=ax*dy-ay*dx;const l=Math.hypot(xx,xy,xz);xx/=l;xy/=l;xz/=l;
+  return new Float32Array([xx,xy,xz,dy*xz-dz*xy,dz*xx-dx*xz,dx*xy-dy*xx,dx,dy,dz]);}
+
+// ---------------------------------------------------------------- camera
+const FOV=40*Math.PI/180;
+const cam={yaw:-.6,pitch:.42,zoom:1,dist:10,radius:4,vy:0,vp:0,target:null};
+let R3=new Float32Array(9);
+function mul3(a,b){const o=new Float32Array(9);for(let c=0;c<3;c++)for(let r=0;r<3;r++){let s=0;for(let k=0;k<3;k++)s+=a[k*3+r]*b[c*3+k];o[c*3+r]=s;}return o;}
+function mul4(a,b){const o=new Float32Array(16);for(let c=0;c<4;c++)for(let r=0;r<4;r++){let s=0;for(let k=0;k<4;k++)s+=a[k*4+r]*b[c*4+k];o[c*4+r]=s;}return o;}
+function viewProj(){
+  const cy=Math.cos(cam.yaw),sy=Math.sin(cam.yaw),cp=Math.cos(cam.pitch),sp=Math.sin(cam.pitch);
+  R3=mul3(new Float32Array([1,0,0,0,cp,sp,0,-sp,cp]),new Float32Array([cy,0,-sy,0,1,0,sy,0,cy]));
+  const asp=cv.width/cv.height,half=Math.min(FOV/2,Math.atan(Math.tan(FOV/2)*asp));
+  cam.dist=cam.radius/Math.sin(half)*.9*cam.zoom;
+  const V=new Float32Array([R3[0],R3[1],R3[2],0,R3[3],R3[4],R3[5],0,R3[6],R3[7],R3[8],0,0,0,-cam.dist,1]);
+  const t=1/Math.tan(FOV/2),n=.1,f=200,nf=1/(n-f);
+  const P=new Float32Array([t/asp,0,0,0,0,t,0,0,0,0,(f+n)*nf,-1,0,0,2*f*n*nf,0]);
+  return mul4(P,V);
+}
+const RT=(v)=>[R3[0]*v[0]+R3[1]*v[1]+R3[2]*v[2],R3[3]*v[0]+R3[4]*v[1]+R3[5]*v[2],R3[6]*v[0]+R3[7]*v[1]+R3[8]*v[2]];
+
+// ---------------------------------------------------------------- game state
+// heads and stubs stay inside their own cell so there's always a visible gap to neighbours
+const TR=.31,CR=.42,CL=.56,HB=.1,STUB=.12,HEAD=hex('#141519'),RED=[1,.13,.2],WHITE=[1,1,1];
+let G=null,snakes=[],occ=null,level=1,hearts=3,mistakes=0,busy=false,ended=false,dirty=true,hint=null;
+// ---- progress
+// Saved under fixed keys that never change between builds, so a new version picks up
+// where the last one left off. Every source is read and the furthest progress wins,
+// so nothing (an older build, a second tab, a lost key) can move progress backwards.
+// A cookie mirrors localStorage as a backup. New levels are only ever added at the
+// end, so existing level numbers keep their layouts.
+let unlocked=1,cleared={};
+const SAVE_KEY='wriggle.progress';
+function readCookie(){const m=document.cookie.match(/(?:^|;\s*)wriggle=([^;]*)/);if(!m)return null;try{return JSON.parse(decodeURIComponent(m[1]));}catch(e){return null;}}
+function mergeProgress(p){
+  if(!p||typeof p!=='object')return;
+  const u=parseInt(p.unlocked)||1,l=parseInt(p.level)||1;
+  if(u>unlocked)unlocked=u;
+  if(l>=1)level=l;
+  if(p.cleared&&typeof p.cleared==='object')for(const k in p.cleared){const v=+p.cleared[k];if(!(k in cleared)||v<cleared[k])cleared[k]=v;}
+}
+function loadProgress(){
+  let ls=null;
+  try{ls=JSON.parse(localStorage.getItem(SAVE_KEY));}catch(e){}
+  let legacy=null;
+  try{const l=parseInt(localStorage.getItem('wriggle.level')),u=parseInt(localStorage.getItem('wriggle.unlocked'));if(l||u)legacy={level:l||1,unlocked:Math.max(l||1,u||1)};}catch(e){}
+  const ck=readCookie();
+  mergeProgress(legacy);mergeProgress(ck);mergeProgress(ls);
+  for(const k in cleared)if(+k+1>unlocked)unlocked=+k+1;
+  level=Math.max(1,Math.min(level,unlocked));
+  try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();}catch(e){}
+  save();
+}
+function save(){
+  const data={v:1,level,unlocked,cleared};
+  try{
+    // merge with whatever is stored right now, so another tab's progress is kept
+    const cur=JSON.parse(localStorage.getItem(SAVE_KEY)||'null');
+    if(cur){if((parseInt(cur.unlocked)||1)>data.unlocked)data.unlocked=unlocked=parseInt(cur.unlocked);
+      if(cur.cleared)for(const k in cur.cleared){const v=+cur.cleared[k];if(!(k in cleared)||v<cleared[k])cleared[k]=v;}}
+    localStorage.setItem(SAVE_KEY,JSON.stringify(data));
+    localStorage.setItem('wriggle.level',level);localStorage.setItem('wriggle.unlocked',unlocked); // read by older builds
+  }catch(e){}
+  try{document.cookie='wriggle='+encodeURIComponent(JSON.stringify(data))+';max-age=34560000;path=/;SameSite=Lax';}catch(e){}
+}
+loadProgress();
+
+function pointAt(s,t){const P=s.pts,C=s.cum;if(t<=0)return P[0];
+  for(let i=0;i<P.length-1;i++)if(t<=C[i+1]){const f=(t-C[i])/(C[i+1]-C[i]),a=P[i],b=P[i+1];return[a[0]+(b[0]-a[0])*f,a[1]+(b[1]-a[1])*f,a[2]+(b[2]-a[2])*f];}
+  return P[P.length-1];}
+function dirAt(s,t){const P=s.pts,C=s.cum;let i=0;while(i<P.length-2&&t>C[i+1]+1e-6)i++;
+  const a=P[i],b=P[i+1],l=Math.hypot(b[0]-a[0],b[1]-a[1],b[2]-a[2]);return[(b[0]-a[0])/l,(b[1]-a[1])/l,(b[2]-a[2])/l];}
+
+function buildParts(s,a){
+  const b=a+s.L,P=s.pts,C=s.cum,pts=[pointAt(s,a)];
+  for(let i=0;i<P.length;i++){if(C[i]>=b-1e-4)break;if(C[i]>a+1e-4)pts.push(P[i]);}
+  pts.push(pointAt(s,b));
+  const items=[{m:1,T:pts[0],R:I3,S:[TR,TR,TR]}],segs=[[pts[0],pts[0],TR]];
+  let prev=null;
+  for(let i=0;i<pts.length-1;i++){
+    const p=pts[i],q=pts[i+1],dx=q[0]-p[0],dy=q[1]-p[1],dz=q[2]-p[2],l=Math.hypot(dx,dy,dz);
+    if(l<1e-4)continue;
+    const d=[dx/l,dy/l,dz/l];
+    if(prev&&(Math.abs(prev[0]-d[0])+Math.abs(prev[1]-d[1])+Math.abs(prev[2]-d[2]))>1e-3)items.push({m:1,T:p,R:I3,S:[TR,TR,TR]});
+    items.push({m:0,T:p,R:basis(d[0],d[1],d[2]),S:[TR,TR,l]});segs.push([p,q,TR]);prev=d;
+  }
+  const hd=dirAt(s,b),h=pts[pts.length-1],base=[h[0]-hd[0]*HB,h[1]-hd[1]*HB,h[2]-hd[2]*HB];
+  items.push({m:2,T:base,R:basis(hd[0],hd[1],hd[2]),S:[CR,CR,CL],head:true});
+  segs.push([base,[base[0]+hd[0]*CL,base[1]+hd[1]*CL,base[2]+hd[2]*CL],CR*.8]);
+  return{items,segs};
+}
+
+function loadLevel(n){
+  level=n;if(n>unlocked)unlocked=n;save();
+  const def=LEVELS[(n-1)%LEVELS.length];
+  const g=levelGrid(n);const res=buildPuzzle(n,g);
+  G=g;occ=new Int32Array(g.N).fill(-1);
+  const cx=(g.W-1)/2,cy=(g.H-1)/2,cz=(g.D-1)/2,crng=mulberry(n*31+7);
+  const wp=i=>[i%g.W-cx,((i/g.W)|0)%g.H-cy,((i/(g.W*g.H))|0)-cz];
+  snakes=res.snakes.map((gs,id)=>{
+    gs.cells.forEach(c=>occ[c]=id);
+    const dv=DIRS[gs.d],n=gs.cells.length,head=wp(gs.cells[n-1]);
+    const pts=n===1?[[head[0]-dv[0]*STUB,head[1]-dv[1]*STUB,head[2]-dv[2]*STUB],head]:gs.cells.map(wp);
+    const ext=gs.ray.length+n+7;
+    for(let k=1;k<=ext;k++)pts.push([head[0]+dv[0]*k,head[1]+dv[1]*k,head[2]+dv[2]*k]);
+    const cum=[0];for(let i=1;i<pts.length;i++)cum.push(cum[i-1]+Math.hypot(pts[i][0]-pts[i-1][0],pts[i][1]-pts[i-1][1],pts[i][2]-pts[i-1][2]));
+    const L=n===1?STUB:n-1;
+    const pal=PAL[g.regNames[gs.reg]]||PAL.cube,base=hex(pal[(crng()*pal.length)|0]),j=.9+crng()*.16;
+    const s={id,g:gs,pts,cum,L,dv,col:base.map(v=>Math.min(1,v*j)),state:'idle',a:0,alpha:1,
+      exitA:L+gs.ray.length+.7,flash:null,nudge:null};
+    s.parts=buildParts(s,0);return s;
+  });
+  cam.radius=.5*Math.hypot(g.W,g.H,g.D)+.25;cam.yaw=-.6;cam.pitch=.42;cam.zoom=1;cam.vy=cam.vp=0;cam.target=null;
+  hearts=3;mistakes=0;busy=false;ended=false;hint=null;
+  document.getElementById('lvlNum').textContent='LEVEL '+n;
+  document.getElementById('lvlName').textContent=def.name;
+  updHud();hideOverlay();dirty=true;
+}
+function aliveCount(){return snakes.filter(s=>s.state==='idle').length;}
+function updHud(){
+  document.getElementById('leftN').textContent=aliveCount();
+  document.getElementById('hearts').innerHTML=[0,1,2].map(i=>`<span class="${i<hearts?'':'off'}" style="color:var(--heart)">♥</span>`).join('');
+}
+function blockerOf(s){
+  const g=s.g;for(let p=G.nb[g.cells[g.cells.length-1]*6+g.d];p>=0;p=G.nb[p*6+g.d]){const o=occ[p];if(o>=0&&o!==s.id)return snakes[o];}
+  return null;
+}
+function freeSnakes(){return snakes.filter(s=>s.state==='idle'&&!blockerOf(s));}
+
+function tapSnake(s){
+  if(busy||ended||s.state!=='idle')return;
+  const now=performance.now(),b=blockerOf(s);
+  if(b){
+    s.nudge=now;b.flash={t0:now,dur:700,col:RED};
+    hearts--;mistakes++;updHud();
+    const h=document.getElementById('hearts');h.classList.remove('shake');void h.offsetWidth;h.classList.add('shake');
+    if(navigator.vibrate)navigator.vibrate(40);
+    if(hearts<=0){ended=true;setTimeout(()=>showEnd(false),700);}
+  }else{
+    busy=true;s.state='out';s.t0=now;
+    s.g.cells.forEach(c=>occ[c]=-1);hint=null;updHud();
+  }
+  dirty=true;
+}
+
+// ---------------------------------------------------------------- picking
+function pick(x,y){
+  const asp=cv.width/cv.height,t=Math.tan(FOV/2);
+  const nx=x/innerWidth*2-1,ny=1-y/innerHeight*2;
+  let d=[nx*t*asp,ny*t,-1];const l=Math.hypot(...d);d=d.map(v=>v/l);
+  const D=RT(d),O=RT([0,0,cam.dist]);
+  let best=null,bs=1e9,loose=null,ls=1e9;
+  for(const s of snakes){if(s.state!=='idle')continue;
+    for(const [a,b,r] of s.parts.segs){
+      const u=[b[0]-a[0],b[1]-a[1],b[2]-a[2]],w=[O[0]-a[0],O[1]-a[1],O[2]-a[2]];
+      const bb=D[0]*u[0]+D[1]*u[1]+D[2]*u[2],c=u[0]*u[0]+u[1]*u[1]+u[2]*u[2],dd=D[0]*w[0]+D[1]*w[1]+D[2]*w[2],e=u[0]*w[0]+u[1]*w[1]+u[2]*w[2];
+      let tt=0;const den=c-bb*bb;
+      if(c>1e-9)tt=den>1e-9?(e-bb*dd)/den:e/c;tt=Math.max(0,Math.min(1,tt));
+      const q=[a[0]+u[0]*tt,a[1]+u[1]*tt,a[2]+u[2]*tt],ss=D[0]*(q[0]-O[0])+D[1]*(q[1]-O[1])+D[2]*(q[2]-O[2]);
+      if(ss<0)continue;
+      const dist=Math.hypot(O[0]+D[0]*ss-q[0],O[1]+D[1]*ss-q[1],O[2]+D[2]*ss-q[2]);
+      if(dist<r*1.05&&ss<bs){bs=ss;best=s;}
+      else if(dist<r*1.9&&ss<ls){ls=ss;loose=s;}
+    }
+  }
+  return best||loose;
+}
+
+// ---------------------------------------------------------------- input
+const ptrs=new Map();let moved=false,pinch=null;
+cv.addEventListener('pointerdown',e=>{
+  cv.setPointerCapture(e.pointerId);
+  if(!ptrs.size){moved=false;pinch=null;}
+  ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY,sx:e.clientX,sy:e.clientY});
+  cam.vy=cam.vp=0;cam.target=null;
+  if(ptrs.size===2){const [a,b]=[...ptrs.values()];pinch={d:Math.hypot(a.x-b.x,a.y-b.y),z:cam.zoom};moved=true;}
+});
+cv.addEventListener('pointermove',e=>{
+  const p=ptrs.get(e.pointerId);if(!p)return;
+  const dx=e.clientX-p.x,dy=e.clientY-p.y;p.x=e.clientX;p.y=e.clientY;
+  if(ptrs.size===1){
+    if(Math.hypot(p.x-p.sx,p.y-p.sy)>8)moved=true;
+    if(moved&&!pinch){cam.yaw+=dx*.009;cam.pitch=Math.max(-1.45,Math.min(1.45,cam.pitch+dy*.009));cam.vy=dx*.009;cam.vp=dy*.009;dirty=true;}
+  }else if(ptrs.size===2&&pinch){
+    const [a,b]=[...ptrs.values()];cam.zoom=Math.max(.55,Math.min(1.9,pinch.z*pinch.d/Math.max(20,Math.hypot(a.x-b.x,a.y-b.y))));dirty=true;
+  }
+});
+function endPtr(e){
+  if(!ptrs.has(e.pointerId))return;
+  if(ptrs.size===1&&!moved&&e.type==='pointerup'){const s=pick(e.clientX,e.clientY);if(s)tapSnake(s);}
+  if(ptrs.size===1&&pinch){cam.vy=cam.vp=0;}
+  ptrs.delete(e.pointerId);
+}
+cv.addEventListener('pointerup',endPtr);cv.addEventListener('pointercancel',endPtr);
+cv.addEventListener('wheel',e=>{e.preventDefault();cam.zoom=Math.max(.55,Math.min(1.9,cam.zoom*Math.exp(e.deltaY*.0012)));dirty=true;},{passive:false});
+
+// ---------------------------------------------------------------- hint: turn the free arrow towards you and pulse it
+function doHint(){
+  if(busy||ended)return;
+  const f=freeSnakes();if(!f.length)return;
+  const s=f[0],d=s.dv;
+  let tx=d[0],ty=d[1],tz=d[2];
+  if(Math.abs(ty)>.9){tx=Math.sin(-cam.yaw)*-.5;tz=Math.cos(cam.yaw)*.5;ty*=1;}else ty+=.55;
+  const l=Math.hypot(tx,ty,tz);tx/=l;ty/=l;tz/=l;
+  const pitch=Math.max(-1.35,Math.min(1.35,Math.asin(ty)));
+  let yaw=Math.abs(ty)>.98?cam.yaw:Math.atan2(-tx,tz);
+  while(yaw-cam.yaw>Math.PI)yaw-=2*Math.PI;while(yaw-cam.yaw<-Math.PI)yaw+=2*Math.PI;
+  cam.target={yaw,pitch};cam.vy=cam.vp=0;
+  hint={ids:f.map(x=>x.id),t0:performance.now()};dirty=true;
+}
+document.getElementById('hintBtn').onclick=doHint;
+document.getElementById('resetBtn').onclick=()=>loadLevel(level);
+document.getElementById('levelsBtn').onclick=showLevels;
+
+// ---------------------------------------------------------------- overlays
+const ov=document.getElementById('overlay'),panel=document.getElementById('panel');
+function hideOverlay(){ov.classList.add('hidden');}
+function showEnd(win){
+  if(win){
+    unlocked=Math.max(unlocked,level+1);if(!(level in cleared)||mistakes<cleared[level])cleared[level]=mistakes;save();
+    const msg=mistakes===0?'Flawless — no slips':mistakes===1?'1 slip':mistakes+' slips';
+    panel.innerHTML=`<h2>Level ${level} cleared</h2><p>${msg}</p><button class="go" id="ovGo">Next level</button>`;
+    document.getElementById('ovGo').onclick=()=>loadLevel(level+1);
+  }else{
+    panel.innerHTML=`<h2>Out of hearts</h2><p>${LEVELS[(level-1)%LEVELS.length].name} wins this round</p><button class="go" id="ovGo">Try again</button>`;
+    document.getElementById('ovGo').onclick=()=>loadLevel(level);
+  }
+  ov.classList.remove('hidden');
+}
+function showLevels(){
+  const max=Math.max(unlocked,LEVELS.length);let h='<h2>Levels</h2><div id="lvGrid">';
+  for(let i=1;i<=max;i++)h+=`<button data-l="${i}" class="${i===level?'cur':''}" ${i>unlocked?'disabled':''}>${i<unlocked?'✓ ':''}${i} · ${LEVELS[(i-1)%LEVELS.length].name}</button>`;
+  h+='</div><button id="ovClose">Close</button>';
+  panel.innerHTML=h;ov.classList.remove('hidden');
+  panel.querySelectorAll('#lvGrid button').forEach(b=>b.onclick=()=>loadLevel(+b.dataset.l));
+  document.getElementById('ovClose').onclick=hideOverlay;
+}
+ov.addEventListener('pointerdown',e=>{if(e.target===ov&&!ended&&aliveCount()>0)hideOverlay();});
+
+// ---------------------------------------------------------------- frame loop
+function resize(){const dpr=Math.min(window.devicePixelRatio||1,2.5);cv.width=Math.round(innerWidth*dpr);cv.height=Math.round(innerHeight*dpr);gl.viewport(0,0,cv.width,cv.height);dirty=true;}
+addEventListener('resize',resize);resize();
+
+function update(now){
+  let active=false;
+  if(ptrs.size===0&&(Math.abs(cam.vy)>1e-4||Math.abs(cam.vp)>1e-4)){
+    cam.yaw+=cam.vy;cam.pitch=Math.max(-1.45,Math.min(1.45,cam.pitch+cam.vp));cam.vy*=.92;cam.vp*=.92;active=true;
+  }
+  if(cam.target){
+    cam.yaw+=(cam.target.yaw-cam.yaw)*.12;cam.pitch+=(cam.target.pitch-cam.pitch)*.12;
+    if(Math.abs(cam.target.yaw-cam.yaw)+Math.abs(cam.target.pitch-cam.pitch)<.002)cam.target=null;active=true;
+  }
+  for(const s of snakes){
+    if(s.state==='out'){
+      const el=(now-s.t0)/1000;s.a=5*el+10*el*el;
+      s.alpha=1-Math.max(0,Math.min(1,(s.a-s.exitA)/2.5));
+      if(s.a>=s.exitA+2.5){s.state='gone';busy=false;
+        if(aliveCount()===0){ended=true;setTimeout(()=>showEnd(true),350);}}
+      else s.parts=buildParts(s,s.a);
+      active=true;
+    }
+    if(s.nudge!==null&&s.state==='idle'){
+      const el=(now-s.nudge)/1000;
+      if(el<.3){s.a=.3*Math.sin(Math.PI*el/.3);s.parts=buildParts(s,s.a);}
+      else{s.nudge=null;s.a=0;s.parts=buildParts(s,0);}
+      active=true;
+    }
+    if(s.flash){if(now-s.flash.t0>s.flash.dur)s.flash=null;active=true;}
+  }
+  if(hint){if(now-hint.t0>2400)hint=null;active=true;}
+  return active;
+}
+function render(now){
+  const VP=viewProj();
+  gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+  gl.enable(gl.DEPTH_TEST);gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
+  gl.uniformMatrix4fv(U.uVP,false,VP);gl.uniformMatrix3fv(U.uV,false,R3);
+  gl.uniform2f(U.uFog,cam.dist-cam.radius,cam.dist+cam.radius*1.2);
+  let bound=-1;
+  const drawSnake=s=>{
+    let fa=0,fc=WHITE;
+    if(s.flash){const el=(now-s.flash.t0)/s.flash.dur;fa=.85*Math.abs(Math.sin(el*Math.PI*3))*(1-el);fc=s.flash.col;}
+    else if(hint&&hint.ids.includes(s.id)){const el=(now-hint.t0)/1000;fa=.6*(.5-.5*Math.cos(el*Math.PI*2/.8));}
+    for(const it of s.parts.items){
+      if(it.m!==bound){const m=MESHES[it.m];gl.bindBuffer(gl.ARRAY_BUFFER,m.vb);gl.vertexAttribPointer(aP,3,gl.FLOAT,false,0,0);
+        gl.bindBuffer(gl.ARRAY_BUFFER,m.nb);gl.vertexAttribPointer(aN,3,gl.FLOAT,false,0,0);gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,m.ib);bound=it.m;}
+      const c=s.col;
+      gl.uniform4f(U.uC,c[0],c[1],c[2],s.alpha);gl.uniform3fv(U.uF,fc);gl.uniform1f(U.uFA,fa);
+      gl.uniform3fv(U.uT,it.T);gl.uniformMatrix3fv(U.uR,false,it.R);gl.uniform3fv(U.uS,it.S);
+      gl.drawElements(gl.TRIANGLES,MESHES[it.m].count,gl.UNSIGNED_SHORT,0);
+    }
+  };
+  for(const s of snakes)if(s.state!=='gone'&&s.alpha>=1)drawSnake(s);
+  for(const s of snakes)if(s.state!=='gone'&&s.alpha<1)drawSnake(s);
+}
+function frame(now){
+  const active=update(now);
+  if(active||dirty){render(now);dirty=false;}
+  requestAnimationFrame(frame);
+}
+loadLevel(level);
+requestAnimationFrame(frame);
+</script>
+<script data-goatcounter="https://s77ffy.goatcounter.com/count"
+        async src="//gc.zgo.at/count.js"></script>
+</body>
+</html>
